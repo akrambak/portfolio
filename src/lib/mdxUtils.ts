@@ -40,6 +40,21 @@ export interface PostWithSource<TFrontmatter> extends Post<TFrontmatter> {
 
 const postsDirectory = path.join(process.cwd(), 'content/blog');
 
+/**
+ * The shape `getAllPostSlugs()` actually produces: a bare filename, never a path.
+ *
+ * `/blog/[slug]` is not limited to the slugs `generateStaticParams` returned —
+ * `dynamicParams` defaults to true, so any slug reaches `getPostData` and is
+ * rendered on demand. Route params arrive percent-decoded, which means a request
+ * for `%2e%2e%2f%2e%2e%2fetc%2fpasswd` hands this module `../../etc/passwd` and
+ * `path.join` walks it straight out of content/blog.
+ *
+ * Matching the permitted shape rather than blacklisting `..` is what makes this
+ * hold: with no separator, no dot and no NUL able to appear, there is no traversal
+ * to encode around, and the joined path cannot leave the directory by construction.
+ */
+const SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
 // Get all filenames/slugs from the blog directory
 export function getAllPostSlugs() {
   try {
@@ -81,6 +96,10 @@ export function getSortedPostsData(): Post<PostFrontmatter>[] {
 
 // Get individual post data and serialize MDX
 export async function getPostData(slug: string): Promise<PostWithSource<PostFrontmatter> | null> {
+  // Refused before it can reach the filesystem. Returning null rather than throwing
+  // keeps this on the existing "no such post" path, so the caller still 404s.
+  if (!SLUG.test(slug)) return null;
+
   const fullPath = path.join(postsDirectory, `${slug}.mdx`);
   try {
     const fileContents = fs.readFileSync(fullPath, 'utf8');
